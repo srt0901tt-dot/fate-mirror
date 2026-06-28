@@ -1,0 +1,6 @@
+{
+  "name": "Fate Mirror 命运镜像",
+  "description": "An immersive tarot self-analysis experience with camera gesture sensing, orbital carousel shuffles, and personalized Gemini interpretations.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
