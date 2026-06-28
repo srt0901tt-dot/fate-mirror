@@ -139,6 +139,104 @@ function AppContent() {
     }
   };
 
+  // Shared safe question submission and analysis with robust local fallback
+  const safeSubmitQuestion = async () => {
+    if (loading || !question.trim()) return;
+
+    setLoading(true);
+    setLoadingMessage({
+      en: 'Peering into the mirrors of eternity... reading current frequencies...',
+      zh: '正在拨开迷雾，窥探命运镜像中的潜意识涟漪...'
+    });
+    playChime('reveal');
+
+    const navigateToModePage = (analysisData: QuestionAnalysis) => {
+      setAnalysis(analysisData);
+      const recMode = SPREAD_MODES.find(m => m.id === analysisData.recommendedMode) || SPREAD_MODES[0];
+      setSelectedMode(recMode);
+      setStep(3);
+      playChime('success');
+    };
+
+    const getFallbackAnalysis = (): QuestionAnalysis => {
+      const qLower = question.toLowerCase();
+      let questionType = 'General Self-Reflective';
+      let questionTypeZh = '综合自我探索';
+      let emotionalSignal = 'Searching for Clarity';
+      let emotionalSignalZh = '探求清晰感';
+      let recommendedMode: 'daily' | 'problem' | 'timeline' | 'relationship' | 'celtic' = 'daily';
+      let interpretationTone = 'Philosophical & Objective';
+      let interpretationToneZh = '哲思与客观';
+
+      if (qLower.includes('love') || qLower.includes('relationship') || qLower.includes('partner') || qLower.includes('marry') || qLower.includes('爱') || qLower.includes('情') || qLower.includes('伴侣') || qLower.includes('结婚')) {
+        questionType = 'Love & Relationships';
+        questionTypeZh = '情感与亲密关系';
+        emotionalSignal = 'Confused or Yearning';
+        emotionalSignalZh = '迷茫与期盼';
+        recommendedMode = 'relationship';
+        interpretationTone = 'Compassionate & Warm';
+        interpretationToneZh = '温暖与疗愈';
+      } else if (qLower.includes('job') || qLower.includes('career') || qLower.includes('work') || qLower.includes('money') || qLower.includes('business') || qLower.includes('工作') || qLower.includes('事业') || qLower.includes('财') || qLower.includes('项目')) {
+        questionType = 'Career & Abundance';
+        questionTypeZh = '事业与财富显化';
+        emotionalSignal = 'Anxious or Driven';
+        emotionalSignalZh = '焦虑或渴望掌控';
+        recommendedMode = 'problem';
+        interpretationTone = 'Direct & Insightful';
+        interpretationToneZh = '犀利与透彻';
+      } else if (qLower.includes('future') || qLower.includes('plan') || qLower.includes('what to do') || qLower.includes('未来') || qLower.includes('打算') || qLower.includes('选择') || qLower.includes('选')) {
+        questionType = 'Life Direction & Path';
+        questionTypeZh = '人生方向与抉择';
+        emotionalSignal = 'Indecisive or Uncertain';
+        emotionalSignalZh = '徘徊与不确定';
+        recommendedMode = 'timeline';
+        interpretationTone = 'Philosophical & Objective';
+        interpretationToneZh = '哲思与客观';
+      }
+
+      return {
+        questionType,
+        questionTypeZh,
+        emotionalSignal,
+        emotionalSignalZh,
+        recommendedMode,
+        interpretationTone,
+        interpretationToneZh
+      };
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch('/api/analyze-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid analysis data returned from server');
+      }
+
+      navigateToModePage(data);
+    } catch (err: any) {
+      console.warn('AI analysis unavailable, using local high-fidelity fallback analysis. Detail:', err?.message || err);
+      const fallback = getFallbackAnalysis();
+      navigateToModePage(fallback);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Global Gesture Controller for step 1, 2, 3, 6, 7 page actions
   useGlobalGestureControl({
     onOpenPalm: () => {
@@ -161,7 +259,7 @@ function AppContent() {
         playChime('draw');
       } else if (step === 2) {
         if (question.trim()) {
-          handleAnalyzeQuestion();
+          safeSubmitQuestion();
         }
       } else if (step === 3) {
         if (selectedMode) {
@@ -192,44 +290,11 @@ function AppContent() {
         });
       }
     }
-  }, [step, question, selectedMode, controlMode]);
+  }, [step, question, selectedMode, controlMode, loading]);
 
-  // Trigger question analysis via backend API
-  const handleAnalyzeQuestion = async () => {
-    if (!question.trim()) return;
-    
-    setLoading(true);
-    setLoadingMessage({
-      en: 'Peering into the mirrors of eternity... reading current frequencies...',
-      zh: '正在拨开迷雾，窥探命运镜像中的潜意识涟漪...'
-    });
-    playChime('reveal');
-
-    try {
-      const response = await fetch('/api/analyze-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
-      });
-      const data = await response.json();
-      
-      setAnalysis(data);
-      // Automatically pre-select recommended mode
-      const recMode = SPREAD_MODES.find(m => m.id === data.recommendedMode) || SPREAD_MODES[0];
-      setSelectedMode(recMode);
-      
-      // Progress to analysis results view
-      setStep(3);
-      playChime('success');
-    } catch (err) {
-      console.error('Failed to analyze question:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Perform full tarot reading interpretation via Gemini
+  // Perform full tarot reading interpretation via Gemini with client-side fallback
   const handleInterpretReading = async () => {
+    if (loading) return;
     setLoading(true);
     setLoadingMessage({
       en: 'Translating energetic alignments into cosmic advice... aligning bilingual streams...',
@@ -237,7 +302,52 @@ function AppContent() {
     });
     playChime('ritual');
 
+    const getFallbackInterpretation = (): DeepInterpretation => {
+      const mode = selectedMode || SPREAD_MODES[0];
+      const cardReadings = drawnCards.map((dc, index) => {
+        const card = TAROT_DATABASE.find(c => c.id === dc.card.id) || dc.card;
+        const pos = mode.positions[index] || { name: 'Position', nameZh: '位置', meaning: 'General aspect', meaningZh: '综合维度' };
+        
+        const keywordStr = card.keywords.join(', ');
+        const keywordStrZh = card.keywordsZh.join('、');
+        const orientation = dc.isReversed ? 'Reversed (逆位)' : 'Upright (正位)';
+        const orientationZh = dc.isReversed ? '【逆位】' : '【正位】';
+        
+        const meaning = dc.isReversed ? card.reversed : card.upright;
+        const meaningZh = dc.isReversed ? card.reversedZh : card.uprightZh;
+
+        const interpretation = `In the position of "${pos.name}" (${pos.meaning}), you have drawn ${card.name} in the ${orientation} stance. Keywords: [${keywordStr}]. This indicates: ${meaning} Furthermore, regarding your question, this suggests you must look inward. ${card.emotionalMeaning}`;
+        const interpretationZh = `在【${pos.nameZh}】（代表 ${pos.meaningZh}）的位置上，你抽到了${card.nameZh}的${orientationZh}。核心牌意为：[${keywordStrZh}]。这象征着：${meaningZh} 在对待你提问的这桩心事上，这张牌在悄然提示你：${card.emotionalMeaningZh}`;
+
+        return {
+          cardId: card.id,
+          interpretation,
+          interpretationZh
+        };
+      });
+
+      const cardNames = drawnCards.map(dc => {
+        const card = TAROT_DATABASE.find(c => c.id === dc.card.id) || dc.card;
+        return `${card.nameZh} (${dc.isReversed ? '逆位' : '正位'})`;
+      }).join(' ➔ ');
+
+      return {
+        summary: `The mirror reflects a tapestry of shifting energies concerning "${question}". Your spread [${mode.name}] highlights a crucial transition. The tension reveals that answers lie not in external events, but in aligning your subconscious intentions with conscious action.`,
+        summaryZh: `针对你的求问“${question}”，命运之镜映照出了一幅交织流动的能量图卷。你所启用的【${mode.nameZh}】牌阵展现了当前局势的幽微脉络（${cardNames}）。其深层张力表明：你所探寻的答案并非悬于外界的偶然，而取决于你如何将潜意识的内在阴影与显意识的踏实行动相统一。`,
+        cardReadings,
+        emotionalPattern: `You are showing a state of "${analysis?.emotionalSignal || 'Searching'}". The cards indicate an underlying pattern of seeking external validation while neglecting intuitive self-honesty.`,
+        emotionalPatternZh: `你当前流露出“${analysis?.emotionalSignalZh || '探求'}”的心灵频率。镜像牌阵揭示了你内心深处某种长久的认知模式：习惯于向外寻找印证和安全的锚点，却在不经意间忽视了对自身直觉的深度诚实。`,
+        actionGuidance: `Based on the final guidance of this reading, you are advised to pause, establish structural boundaries, and act on the wisdom of the drawn advice. Avoid impulsive moves.`,
+        actionGuidanceZh: `综合本次镜像的终极启示，建议你在接下来的周期里：放慢呼吸，确立现实的心理或物理边界；遵照牌面所给的指引，将灵感化为具体的微小行动。避免意气用事或仓促做出不理智的决断。`,
+        reflectionPrompt: `What is the shadow belief you are holding on to that prevents you from surrendering to this natural rebirth?`,
+        reflectionPromptZh: `在阻碍你顺应当前的蜕变与新生前，你内心深处究竟死死抓着一个怎样不切实际的“幻象信念”不愿放手？`
+      };
+    };
+
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds timeout
+
       const response = await fetch('/api/interpret-reading', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,16 +356,32 @@ function AppContent() {
           modeId: selectedMode?.id,
           drawnCards: drawnCards.map(dc => ({ cardId: dc.card.id, isReversed: dc.isReversed })),
           analysis
-        })
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+
       const data = await response.json();
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid interpretation data returned from server');
+      }
       
       setInterpretation(data);
       setStep(6);
       setIsSaved(false); // Reset saved state for new reading
       playChime('success');
-    } catch (err) {
-      console.error('Failed to interpret reading:', err);
+    } catch (err: any) {
+      console.warn('AI reading interpretation unavailable, using local high-fidelity fallback advice. Detail:', err?.message || err);
+      const fallback = getFallbackInterpretation();
+      setInterpretation(fallback);
+      setStep(6);
+      setIsSaved(false);
+      playChime('success');
     } finally {
       setLoading(false);
     }
@@ -593,6 +719,12 @@ function AppContent() {
                           id="user-inquiry-input"
                           value={question}
                           onChange={(e) => setQuestion(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                              e.preventDefault();
+                              safeSubmitQuestion();
+                            }
+                          }}
                           className="w-full p-5 bg-transparent border-2 border-[#c5a059]/15 focus:border-[#c5a059]/60 focus:outline-none rounded-[2px] text-sm md:text-base text-[#f5f2eb] placeholder-neutral-600 font-sans font-light leading-relaxed min-h-[150px] relative z-10 transition-all focus:shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)]"
                           placeholder="e.g. Will our relationship resolve this communication barrier, and what is our path? / 例如：我与伴侣该如何化解最近的沟通隔阂，未来的相处脉络在哪里？"
                         />
@@ -604,8 +736,8 @@ function AppContent() {
 
                     <button
                       id="peer-mirror-btn"
-                      onClick={handleAnalyzeQuestion}
-                      disabled={!question.trim()}
+                      onClick={safeSubmitQuestion}
+                      disabled={loading || !question.trim()}
                       className="group relative w-full py-4 bg-[#5f1f2a]/90 hover:bg-[#5f1f2a] disabled:bg-[#1a1918] disabled:text-neutral-600 disabled:border-neutral-800 border-2 border-[#c5a059]/40 hover:border-[#c5a059] text-ivory font-serif tracking-[0.2em] text-xs transition-all duration-700 uppercase rounded-[2px] z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
                     >
                       <span className="relative z-10">Peer into Mirror / 凝视镜面，起卦 ➔</span>

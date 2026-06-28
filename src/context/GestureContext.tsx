@@ -62,7 +62,7 @@ export function useGlobalGestureControl(callbacks: GestureCallbacks, dependencie
 
 export function GestureProvider({ children }: { children: React.ReactNode }) {
   const [controlMode, setControlModeState] = useState<'gesture' | 'mouse'>('mouse');
-  const [cameraStatus, setCameraStatus] = useState<'idle' | 'initializing' | 'active' | 'denied' | 'error'>('idle');
+  const [cameraStatus, setCameraStatusState] = useState<'idle' | 'initializing' | 'active' | 'denied' | 'error'>('idle');
   const [currentGesture, setCurrentGesture] = useState<'none' | 'hand-detected' | 'open-palm' | 'pinch'>('none');
   const [gestureActive, setGestureActiveState] = useState<boolean>(true);
   
@@ -71,6 +71,18 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
   const [dx, setDx] = useState<number>(0);
   const [dy, setDy] = useState<number>(0);
   const [scrollStatus, setScrollStatusState] = useState<'idle' | 'Scroll up' | 'Scroll down'>('idle');
+
+  // To prevent closures over state causing camera recreate/restarts, use refs for loop values
+  const gestureActiveRef = useRef(gestureActive);
+  useEffect(() => {
+    gestureActiveRef.current = gestureActive;
+  }, [gestureActive]);
+
+  const cameraStatusRef = useRef<'idle' | 'initializing' | 'active' | 'denied' | 'error'>('idle');
+  const setCameraStatus = useCallback((status: 'idle' | 'initializing' | 'active' | 'denied' | 'error') => {
+    cameraStatusRef.current = status;
+    setCameraStatusState(status);
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -157,7 +169,7 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const startGlobalCamera = useCallback(async () => {
-    if (cameraStatus === 'active' || cameraStatus === 'initializing') {
+    if (cameraStatusRef.current === 'active' || cameraStatusRef.current === 'initializing') {
       return;
     }
 
@@ -193,7 +205,7 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
         });
 
         hands.onResults((results: any) => {
-          if (!gestureActive) {
+          if (!gestureActiveRef.current) {
             setCurrentGesture('none');
             return;
           }
@@ -328,7 +340,7 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
 
         const cameraInstance = new win.Camera(videoRef.current, {
           onFrame: async () => {
-            if (videoRef.current && gestureActive) {
+            if (videoRef.current && gestureActiveRef.current) {
               try {
                 await hands.send({ image: videoRef.current });
               } catch (e) {
@@ -357,7 +369,7 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
       }
       setControlModeState('mouse');
     }
-  }, [gestureActive, triggerHandDetected, triggerNoHand, triggerPinch, triggerOpenPalm, triggerLeft, triggerRight, cameraStatus]);
+  }, [triggerHandDetected, triggerNoHand, triggerPinch, triggerOpenPalm, triggerLeft, triggerRight, setCameraStatus]);
 
   const stopGlobalCamera = useCallback(() => {
     if (cameraRef.current) {
@@ -373,13 +385,13 @@ export function GestureProvider({ children }: { children: React.ReactNode }) {
       streamRef.current = null;
     }
     setCameraStatus('idle');
-  }, []);
+  }, [setCameraStatus]);
 
   const setControlMode = useCallback((mode: 'gesture' | 'mouse') => {
     setControlModeState(mode);
   }, []);
 
-  // Manage camera based on controlMode
+  // Manage camera based on controlMode ONLY when controlMode changes to prevent cyclic re-evaluation of camera initialization
   useEffect(() => {
     if (controlMode === 'gesture') {
       startGlobalCamera();
